@@ -52,6 +52,7 @@ random.seed(SEED)
 class ClientSamplingStrategy(Enum):
     RANDOM = 1
     MORAN = 2
+    EVO = 3
     
 class ResourceAllocationType(Enum):
     NONE = 1
@@ -302,7 +303,7 @@ def random_action_choice(p: float = 0.5) -> Action:
         return Action.D
     
     
-def moran_sampling(scoreboard_list, available_clients, k, weight=1, round_number = 1, threshold=50):
+def moran_sampling(scoreboard_list, available_clients, k, weight=1, round_number = 1, threshold=50, evolution = 0.0):
 
     # TRACKING HERE ->
     global sampling_data  # Track probabilities globally
@@ -370,7 +371,18 @@ def moran_sampling(scoreboard_list, available_clients, k, weight=1, round_number
         
 
     # Sample k clients without replacement
-    selected_indices = np.random.choice(len(client_ids), size=k, replace=False, p=probabilities)
+    if evolution == 0.0: # default moran sampling
+        selected_indices = np.random.choice(len(client_ids), size=k, replace=False, p=probabilities)
+    else:
+        evolution_factor = round(k * evolution, 0)
+        k_new = k - evolution_factor
+        # sample k_new with moran probability
+        moran_indices = np.random.choice(len(client_ids), size=k_new, replace=False, p=probabilities)
+        # detect remaining idx
+        remaining_indices = np.setdiff1d(np.arange(len(client_ids)), moran_indices)
+        # merge explorative path and moran sampling
+        selected_indices = np.random.choice(remaining_indices, size=k, replace=False) + moran_indices
+    
     selected_clients = [client_uids[i] for i in selected_indices]
     
     return selected_clients

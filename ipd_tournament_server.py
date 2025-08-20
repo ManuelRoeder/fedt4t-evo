@@ -65,6 +65,51 @@ class Ipd_ClientManager(SimpleClientManager):
          super().__init__()
          log(INFO, "Starting Ipd client manager")
     
+    def sample_evo(
+        self,
+        num_clients: int,
+        server_round: int,
+        min_num_clients: Optional[int] = None,
+        scoreboard: list = [],
+    ) -> list[ClientProxy]:
+        """Sample a number of Flower ClientProxy instances."""
+        # Block until at least num_clients are connected.
+        if min_num_clients is None:
+            min_num_clients = num_clients
+        self.wait_for(min_num_clients)
+        # Sample clients which meet the criterion
+        available_cids = list(self.clients)
+        log(INFO, "Number of available clients for Evo sampling: " + str(len(available_cids)))
+        # collect client list async
+        proxy_list = list()
+        for client_id, client_proxy in self.clients.items():
+            proxy_list.append(client_proxy)
+        
+        # get client ids from nodes async
+        participating_client_lst = get_properties_async(client_instructions=[], client_proxies=proxy_list,
+                                                        max_workers=None,
+                                                        timeout=None,
+                                                        group_id=server_round)
+        resolved_clients = list()
+        for client in participating_client_lst:
+            index = client[0]
+            uid = available_cids[index]
+            id = client[1]["client_id"]
+            resolved_clients.append((uid, id))
+        
+        if num_clients > len(available_cids):
+            log(
+                INFO,
+                "Sampling failed: number of available clients"
+                " (%s) is less than number of requested clients (%s).",
+                len(available_cids),
+                num_clients,
+            )
+            return []
+
+        sampled_cids = moran_sampling(scoreboard_list=scoreboard, available_clients=resolved_clients, k=num_clients, round_number=server_round, threshold=50)#random.sample(available_cids, num_clients)
+        return [self.clients[cid] for cid in sampled_cids]
+    
     def sample_moran(
         self,
         num_clients: int,
@@ -138,6 +183,13 @@ class Ipd_TournamentServer(Server):
         if self.sampling_strategy == ClientSamplingStrategy.MORAN:
             # Get clients and their respective instructions from strategy
             client_instructions = self.strategy.configure_fit_moran(
+                server_round=server_round,
+                parameters=self.parameters,
+                client_manager=self._client_manager,
+                scoreboard= self.ipd_scoreboard_dict
+            )
+        elif self.sampling_strategy == ClientSamplingStrategy.EVO:
+            client_instructions = self.strategy.configure_fit_evo(
                 server_round=server_round,
                 parameters=self.parameters,
                 client_manager=self._client_manager,

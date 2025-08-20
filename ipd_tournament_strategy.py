@@ -81,6 +81,28 @@ class Ipd_TournamentStrategy(FedAvg):
         # Return client/config pairs
         return [(client, fit_ins) for client in clients]
     
+    def configure_fit_evo(
+        self, server_round: int, parameters: Parameters, client_manager: ClientManager, scoreboard: dict
+    ) -> list[tuple[ClientProxy, FitIns]]:
+        """Configure the next round of training."""
+        config = {}
+        if self.on_fit_config_fn is not None:
+            # Custom fit config function provided
+            config = self.on_fit_config_fn(server_round)
+        fit_ins = FitIns(parameters, config)
+
+        # Sample clients
+        sample_size, min_num_clients = self.num_fit_clients(
+            client_manager.num_available()
+        )
+        _, resolved_scoreboard = format_ranked_payoffs_for_logging(scoreboard)
+        clients = client_manager.sample_moran(
+            num_clients=sample_size, min_num_clients=min_num_clients, scoreboard=resolved_scoreboard, server_round=server_round, evolution = 0.1
+        )
+
+        # Return client/config pairs
+        return [(client, fit_ins) for client in clients]
+    
     def aggregate_fit(
         self,
         server_round: int,
