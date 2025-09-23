@@ -27,6 +27,7 @@ import copy
 import concurrent.futures
 from collections import defaultdict
 from logging import INFO
+import sys
 from typing import Optional, Union
 
 from flwr.common.logger import log
@@ -54,6 +55,8 @@ import util
 from ipd_tournament_strategy import Ipd_TournamentStrategy
 
 USE_CANTOR_PAIRING = False # use cantor hashing or free-text transmission of match id
+GENERATION_STEP_SIZE = 2 # how many training rounds per generation
+RESET_SCOREBOARD_EACH_GEN = False
 
 FitResultsAndFailures = tuple[
     list[tuple[ClientProxy, FitRes]],
@@ -62,15 +65,26 @@ FitResultsAndFailures = tuple[
 
 class Ipd_ClientManager(SimpleClientManager):
     def __init__(self) -> None:
-         super().__init__()
-         log(INFO, "Starting Ipd client manager")
+        super().__init__()
+        log(INFO, "Starting Ipd client manager")
+        self.evo_selection_list = list()
+        self.evo_client_pool = list()
+
+    def get_evo_selection_list(self):
+        return self.evo_selection_list
     
-    def sample_evo(
+    def set_evo_selection_list(self, evo_lst):
+        self.evo_selection_list = evo_lst
+    
+    def get_evo_client_pool(self):
+        return self.evo_client_pool
+        
+    def evo_selection(
         self,
         num_clients: int,
         server_round: int,
         min_num_clients: Optional[int] = None,
-        scoreboard: list = [],
+        scoreboard: list = []
     ) -> list[ClientProxy]:
         """Sample a number of Flower ClientProxy instances."""
         # Block until at least num_clients are connected.
@@ -79,8 +93,38 @@ class Ipd_ClientManager(SimpleClientManager):
         self.wait_for(min_num_clients)
         # Sample clients which meet the criterion
         available_cids = list(self.clients)
-        log(INFO, "Number of available clients for Evo sampling: " + str(len(available_cids)))
-        # collect client list async
+        if num_clients > len(available_cids):
+            log(
+                INFO,
+                "Sampling failed: number of available clients"
+                " (%s) is less than number of requested clients (%s).",
+                len(available_cids),
+                num_clients,
+            )
+            return []
+        
+        log(INFO, "Number of available clients for Evolutionary selection: " + str(len(available_cids)))
+        if server_round == 1:
+            self.evo_client_pool = self.get_client_list_ext(server_round=server_round)
+            self.evo_selection_list = self.select_one_per_strategy(self.evo_client_pool)
+        
+        sampled_cids = [entry[0] for entry in self.evo_selection_list]
+        return [self.clients[cid] for cid in sampled_cids]
+    
+    
+    def select_one_per_strategy(self, data):
+        seen = set()
+        result = []
+        for entry in data:
+            strategy = entry[2].split("|")[-1].strip()  # extract strategy name
+            if strategy not in seen:
+                seen.add(strategy)
+                result.append(entry)
+        return result
+    
+    def get_client_list_ext(self, server_round):
+        # collect client list async, including client strategy
+        available_cids = list(self.clients)
         proxy_list = list()
         for client_id, client_proxy in self.clients.items():
             proxy_list.append(client_proxy)
@@ -95,21 +139,11 @@ class Ipd_ClientManager(SimpleClientManager):
             index = client[0]
             uid = available_cids[index]
             id = client[1]["client_id"]
-            resolved_clients.append((uid, id))
-        
-        if num_clients > len(available_cids):
-            log(
-                INFO,
-                "Sampling failed: number of available clients"
-                " (%s) is less than number of requested clients (%s).",
-                len(available_cids),
-                num_clients,
-            )
-            return []
+            strategy_name = client[1]["strategy"]
+            resolved_clients.append((uid, id, strategy_name))
+        return resolved_clients
 
-        sampled_cids = moran_sampling(scoreboard_list=scoreboard, available_clients=resolved_clients, k=num_clients, round_number=server_round, threshold=50)#random.sample(available_cids, num_clients)
-        return [self.clients[cid] for cid in sampled_cids]
-    
+
     def sample_moran(
         self,
         num_clients: int,
@@ -124,8 +158,25 @@ class Ipd_ClientManager(SimpleClientManager):
         self.wait_for(min_num_clients)
         # Sample clients which meet the criterion
         available_cids = list(self.clients)
+        if num_clients > len(available_cids):
+            log(
+                INFO,
+                "Sampling failed: number of available clients"
+                " (%s) is less than number of requested clients (%s).",
+                len(available_cids),
+                num_clients,
+            )
+            return []
+        
         log(INFO, "Number of available clients for Moran sampling: " + str(len(available_cids)))
+        resolved_clients = self.get_client_list(server_round=server_round)
+
+        sampled_cids = moran_sampling(scoreboard_list=scoreboard, available_clients=resolved_clients, k=num_clients, round_number=server_round, threshold=50)#random.sample(available_cids, num_clients)
+        return [self.clients[cid] for cid in sampled_cids]
+    
+    def get_client_list(self, server_round):
         # collect client list async
+        available_cids = list(self.clients)
         proxy_list = list()
         for client_id, client_proxy in self.clients.items():
             proxy_list.append(client_proxy)
@@ -141,19 +192,7 @@ class Ipd_ClientManager(SimpleClientManager):
             uid = available_cids[index]
             id = client[1]["client_id"]
             resolved_clients.append((uid, id))
-        
-        if num_clients > len(available_cids):
-            log(
-                INFO,
-                "Sampling failed: number of available clients"
-                " (%s) is less than number of requested clients (%s).",
-                len(available_cids),
-                num_clients,
-            )
-            return []
-
-        sampled_cids = moran_sampling(scoreboard_list=scoreboard, available_clients=resolved_clients, k=num_clients, round_number=server_round, threshold=50)#random.sample(available_cids, num_clients)
-        return [self.clients[cid] for cid in sampled_cids]     
+        return resolved_clients
 
 
 class Ipd_TournamentServer(Server):
@@ -189,6 +228,7 @@ class Ipd_TournamentServer(Server):
                 scoreboard= self.ipd_scoreboard_dict
             )
         elif self.sampling_strategy == ClientSamplingStrategy.EVO:
+            # Get clients and their respective instructions from strategy
             client_instructions = self.strategy.configure_fit_evo(
                 server_round=server_round,
                 parameters=self.parameters,
@@ -241,6 +281,46 @@ class Ipd_TournamentServer(Server):
             Optional[Parameters],
             dict[str, Scalar],
         ] = self.strategy.aggregate_fit(server_round, results, failures)
+        
+        
+        if self.sampling_strategy == ClientSamplingStrategy.EVO and (server_round > 1) and(server_round % GENERATION_STEP_SIZE) == 0:
+            print("Running Evolutionary Selection in round " + str(server_round))
+            selected_clients = self._client_manager.get_evo_selection_list()
+            # check win condition first
+            test_strat = selected_clients[0][2]
+            if all(z == test_strat for _, _, z in selected_clients):
+                # win codition hit
+                print("Evolutionary Selection Winner found: " + test_strat)
+                sys.exit(1)
+                
+            # Reproduction - chose one client for reproduction
+            client_to_reproduce, client_to_reproduce_id = util.evolutionary_selection(self.ipd_scoreboard_dict, selected_clients, 1, reproduction=True)
+            print("Client "+ str(client_to_reproduce_id) + " selected for reproduction")
+            #if found:
+            #    selected_clients.remove(found)
+            # Termination
+            client_to_terminate = client_to_reproduce
+            while (client_to_reproduce == client_to_terminate):
+                client_to_terminate, client_to_terminate_id = util.evolutionary_selection(self.ipd_scoreboard_dict, selected_clients, 1, reproduction=False)
+            print("Client "+ str(client_to_terminate_id) + " selected for termination")
+            # resolve evo selection
+            client_pool = self._client_manager.get_evo_client_pool()
+            # remove
+            selected_clients = [entry for entry in selected_clients if entry[0] != client_to_terminate]
+            # reproduction
+            # list of available clients form client pool that satisfies strategy "X"
+            full_entry = next((t for t in selected_clients if t[0] == client_to_reproduce), None)
+            matching_entry = random.choice([e for e in client_pool if e[2] == full_entry[2] and all(x != e[0] for x, _, _ in selected_clients)])
+            selected_clients.append(matching_entry)
+            self._client_manager.set_evo_selection_list(selected_clients)
+            # reset scoreboard
+            if RESET_SCOREBOARD_EACH_GEN:
+                self.ipd_scoreboard_dict.clear()
+            else:
+                self.ipd_scoreboard_dict.pop(client_to_terminate_id, None)
+            print("Done Evolutionary Selection")
+            
+            
 
         parameters_aggregated, metrics_aggregated = aggregated_result
         return parameters_aggregated, metrics_aggregated, (results, failures)

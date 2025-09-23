@@ -123,7 +123,7 @@ class FedT4TClient(NumPyClient):
         if "match_id" in config.keys():
             match_id = config["match_id"]
             log(INFO, "Match id found %s", match_id)
-        if "dynamic_client_resource" in config.keys():
+        if "dynamic_client_resource" in config.keys() and isinstance(self.ipd_strategy, ResourceAwareMemOnePlayer):
             res_level = config["dynamic_client_resource"]
             log(INFO, "dynamic_client_resource found %s", res_level)
             self.ipd_strategy.set_resource_level(float(res_level))

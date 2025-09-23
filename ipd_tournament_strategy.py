@@ -59,6 +59,7 @@ class Ipd_TournamentStrategy(FedAvg):
         # Return client/config pairs
         return [(client, fit_ins) for client in clients]
     
+    
     def configure_fit_moran(
         self, server_round: int, parameters: Parameters, client_manager: ClientManager, scoreboard: dict
     ) -> list[tuple[ClientProxy, FitIns]]:
@@ -81,6 +82,7 @@ class Ipd_TournamentStrategy(FedAvg):
         # Return client/config pairs
         return [(client, fit_ins) for client in clients]
     
+    
     def configure_fit_evo(
         self, server_round: int, parameters: Parameters, client_manager: ClientManager, scoreboard: dict
     ) -> list[tuple[ClientProxy, FitIns]]:
@@ -96,12 +98,13 @@ class Ipd_TournamentStrategy(FedAvg):
             client_manager.num_available()
         )
         _, resolved_scoreboard = format_ranked_payoffs_for_logging(scoreboard)
-        clients = client_manager.sample_moran(
-            num_clients=sample_size, min_num_clients=min_num_clients, scoreboard=resolved_scoreboard, server_round=server_round, evolution = 0.1
+        clients = client_manager.evo_selection(
+            num_clients=sample_size, min_num_clients=min_num_clients, scoreboard=resolved_scoreboard, server_round=server_round
         )
 
         # Return client/config pairs
         return [(client, fit_ins) for client in clients]
+    
     
     def aggregate_fit(
         self,

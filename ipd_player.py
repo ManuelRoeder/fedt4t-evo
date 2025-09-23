@@ -47,6 +47,16 @@ class ResourceAwareMemOnePlayer:
         Can be applied to all sochastic memory-one strategies of the Axelrod python library. 
     '''
     def __init__(self, player_instance, resource_scaling_func = util.linear_scaling, initial_resource_value=util.ResourceLevel.FULL.value):
+        self.init_player(player_instance, resource_scaling_func, initial_resource_value)
+        
+    def __getattr__(self, name):
+        """
+        Delegate attribute access to the wrapped player instance
+        if it's not defined in the wrapper itself.
+        """
+        return getattr(self._player, name)
+    
+    def init_player(self, player_instance, resource_scaling_func, initial_resource_value):
         if not isinstance(player_instance, MemoryOnePlayer):
             raise TypeError("player_instance must be an instance of Player or its subclass")
         player_instance.name = "Res.M1 | " + player_instance.name # resource aware memory one player + axl strategy name
@@ -55,13 +65,6 @@ class ResourceAwareMemOnePlayer:
             raise ValueError("initial_resource_value needs to be between 0.0 and 1.0")
         self._res_lvl = initial_resource_value
         self._res_scaling_func = resource_scaling_func
-        
-    def __getattr__(self, name):
-        """
-        Delegate attribute access to the wrapped player instance
-        if it's not defined in the wrapper itself.
-        """
-        return getattr(self._player, name)
     
      # Implement __getstate__ to return the entire state for pickling
     def __getstate__(self):

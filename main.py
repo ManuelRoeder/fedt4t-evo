@@ -65,7 +65,7 @@ from axelrod.action import Action
 
 SHOW_LABEL_DISTRUBUTION_OVER_CLIENTS = False
 strategy_mem_depth = 1
-FL_STRATEGY_SUBSAMPLE = 0.5
+FL_STRATEGY_SUBSAMPLE = 1.0
 
 def sow_seed(seed):
     torch.manual_seed(seed)
@@ -197,7 +197,7 @@ def server_fn(context: Context):
     # Define the strategy
     strategy = Ipd_TournamentStrategy(
         fraction_fit=FL_STRATEGY_SUBSAMPLE,  # 50% clients sampled each round to do fit()
-        fraction_evaluate=0.1,  # 10% clients sample each round to do evaluate()
+        fraction_evaluate=1.0,  # 10% clients sample each round to do evaluate()
         #min_fit_clients= 16,
         evaluate_metrics_aggregation_fn=weighted_average,  # callback defined earlier
         initial_parameters=global_model_init,  # initialised global model
@@ -209,7 +209,7 @@ def server_fn(context: Context):
     num_rounds = 151
     #print("Min. number of rounds to have on average " + str(avg) + " matches with " + str(NUM_PARTITIONS) + " participating clients and a subsampling rate of " + str(FL_STRATEGY_SUBSAMPLE) + " is "  +  str(num_rounds))
     # Iterated Prisoners Dilemma Tournament Server
-    ipd_tournament_server= Ipd_TournamentServer(client_manager=Ipd_ClientManager(), strategy=strategy, num_rounds=num_rounds, sampling_strategy=util.ClientSamplingStrategy.MORAN)
+    ipd_tournament_server= Ipd_TournamentServer(client_manager=Ipd_ClientManager(), strategy=strategy, num_rounds=num_rounds, sampling_strategy=util.ClientSamplingStrategy.EVO)
 
     # Construct ServerConfig
     config = ServerConfig(num_rounds=num_rounds)
@@ -300,7 +300,42 @@ def get_client_strategies(exp_str, mem_depth=1, resource_awareness=False):
     elif exp_str == "axelrod_stochastic":
         # axelrod set filtered by mem depth 1 and stochastic property
         client_strategies = [s() for s in axl.filtered_strategies(filterset={'memory_depth': mem_depth, 'stochastic': True}, strategies=axl.all_strategies)]
+    
+    elif exp_str == "evolutionary_selection":
+        NUM_SELECTION_STRATEGIES = 6
+        # initiate one-by one
+        for j in range(NUM_SELECTION_STRATEGIES):
+            strat1 = axl.StochasticWSLS(0)
+            strat1.name = "Win Stay - Lose Shift"
+            strat1.set_seed(util.SEED)
+            client_strategies.append(strat1)
         
+            strat2 = axl.SoftJoss(0)
+            strat2.name = "Cooperator"
+            strat2.set_seed(util.SEED)
+            client_strategies.append(strat2)
+         
+            strat3 = axl.SoftJoss(1)
+            strat3.name = "Tit-For-Tat"
+            strat3.set_seed(util.SEED)
+            client_strategies.append(strat3)
+        
+            strat4 = axl.GTFT(p=0.75)
+            strat4.name = "Forgiving TFT"
+            strat4.set_seed(util.SEED)
+            client_strategies.append(strat4)
+        
+            strat5 = axl.GTFT(p=0.33)
+            strat5.name = "Generous TFT"
+            strat5.set_seed(util.SEED)
+            client_strategies.append(strat5)
+            
+            random_player = RandomIPDPlayer()
+            random_player.name = "Random"
+            random_player.set_seed(util.SEED)
+            client_strategies.append(random_player)
+            
+            
     elif exp_str == "convergence_xprobing":
         for i in range(1):
                 # initiate one-by one
@@ -377,7 +412,7 @@ def get_client_strategies(exp_str, mem_depth=1, resource_awareness=False):
 ###################### MAIN TRACK ######################
 
 # initialize strategies with memory_depth eq. 1
-client_strategies = get_client_strategies("m1_selected", mem_depth=strategy_mem_depth, resource_awareness=True)
+client_strategies = get_client_strategies("evolutionary_selection", mem_depth=strategy_mem_depth, resource_awareness=False)
 
 # mix list
 random.shuffle(client_strategies)

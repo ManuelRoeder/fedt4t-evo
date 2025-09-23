@@ -386,3 +386,86 @@ def moran_sampling(scoreboard_list, available_clients, k, weight=1, round_number
     selected_clients = [client_uids[i] for i in selected_indices]
     
     return selected_clients
+
+def evolutionary_selection(scoreboard_list, available_clients, weight=1, reproduction=False):
+    k = 1
+    # Convert scoreboard_list into a dictionary for quick lookup
+    #scoreboard_dict = {entry['client_id']: entry for entry in scoreboard_list}
+    if not isinstance(scoreboard_list, dict):
+        scoreboard_dict = {entry[0]: entry[1] for entry in scoreboard_list}
+    else:
+        scoreboard_dict = scoreboard_list
+
+    # Extract actual client IDs from available_clients
+    client_ids = [tup[1] for tup in available_clients]
+    client_uids = [tup[0] for tup in available_clients]
+
+    # Extract scores for available clients (defaulting to None if not in scoreboard)
+    # scores = np.array([scoreboard_dict.get(client_id, None)[0] for client_id in client_ids])
+     # Extract scores safely (default to 0 if client_id is missing)
+    scores = sum_scores(scoreboard_dict)
+
+    # Identify missing clients
+    missing_mask = np.array([s is None for s in scores])
+
+    if np.all(missing_mask):  # If all clients are missing or warmup, assign uniform probabilities
+        probabilities = np.ones(len(client_ids)) / len(client_ids)
+    else:
+        # Replace missing scores with the average score to avoid errors
+        avg_score = np.mean([s for s in scores if s is not None])
+        scores[missing_mask] = avg_score
+
+        # Normalize scores to compute fitness values
+        min_score = np.min(scores)
+        max_score = np.max(scores)
+        
+        if min_score == max_score:
+            probabilities = np.ones(len(client_ids)) / len(client_ids)
+        else:
+            fitness = 1.0 + weight * (scores.astype(float) - min_score) / (max_score - min_score)
+            total_fitness = np.sum(fitness)
+            probabilities = fitness / total_fitness
+    
+    # Sample k clients without replacement
+    if reproduction:
+        # select client with fitness prob
+        selected_indices = np.random.choice(len(client_ids), size=k, replace=False, p=probabilities)
+    else:
+        # select client with equal prob 
+        selected_indices = np.random.choice(len(client_ids), size=k, replace=False)
+         
+    selected_clients_uids = [client_uids[i] for i in selected_indices]
+    selected_clients_ids = [client_ids[i] for i in selected_indices]
+    
+    return selected_clients_uids[0], selected_clients_ids[0]
+
+def sum_scores(scoreboard_dict, score_index=5, sort_keys=False):
+    """
+    Sum the numeric value at tuple index `score_index` for each list in scoreboard_dict.
+    Returns a numpy array of sums in the same order as scoreboard_dict.keys()
+    (use sort_keys=True to return sums ordered by sorted keys).
+    """
+    items = sorted(scoreboard_dict.items()) if sort_keys else scoreboard_dict.items()
+    sums = []
+    for k, lst in items:
+        total = 0.0
+        for t in lst:
+            # skip if tuple too short
+            if len(t) <= score_index:
+                continue
+            val = t[score_index]
+            # accept numeric or convertible-to-float values
+            if isinstance(val, (int, float, np.integer, np.floating)):
+                total += float(val)
+            else:
+                try:
+                    total += float(val)
+                except Exception:
+                    # non-numeric -> skip
+                    continue
+        # convert to int when it's an exact integer for readability
+        if abs(total - round(total)) < 1e-9:
+            total = int(round(total))
+        sums.append(total)
+
+    return np.array(sums)

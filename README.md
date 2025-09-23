@@ -1,6 +1,6 @@
 # FedT4T-Evo
 
-This respository is an implementation of the algorithm proposed in the paper "**TBD**".
+This respository is an implementation of the algorithm proposed in the manuscript "**The Evolution of Resource-Aware Cooperation in Federated Learning**".
 
 ![racf](/assets/racfl.png)
 
@@ -22,10 +22,11 @@ Pillow==11.0.0
 seaborn==0.13.2
 ```
 
-# Framework Usage
+# General Framework Usage
 FedT4T-Evo currently supports resource-awareness of all strategies from the Axelrod framework that are derived from axelrod.MemoryOne by simply wrapping around the instantiated decision rule:
 ```python
 import axelrod
+import flowr
 from ipd_client import FedT4TClient
 from ipd_player import ResourceAwareMemOnePlayer
 from ipd_tournament_server import Ipd_TournamentServer
@@ -41,14 +42,17 @@ my_resource_aware_strategy = ResourceAwareMemOnePlayer(my_memory_one_strategy, r
 flower_fedt4t_client = FedT4TClient( ..., ipd_strategy=my_resource_aware_strategy, ...)
 clients.append(flower_fedt4t_client)       
 ...
-# select the client subsampling-algorithm
-my_sampling_strategy = ClientSamplingStrategy.MORAN
+# select Evolutionary Selection simulation
+my_sampling_strategy = ClientSamplingStrategy.EVO
 # initialize FL server and pass sampling strategy
-flower_fedt4t_server = Ipd_TournamentServer(clients, sampling_strategy=my_sampling_strategy)
+flower_fedt4t_server = Ipd_TournamentServer(client_manager=Ipd_ClientManager(), ..., sampling_strategy=my_sampling_strategy)
+# start the flower simulation
+flowr.run_simulation(...)
 ```
 
 
 # Bibliography
 If you find our work to be useful in your research, please cite:
 ```
+NA
 ```
